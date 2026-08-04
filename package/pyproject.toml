@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dumbo-mod"
+version = "1.0.0"
+description = "Dumbo — flat LangGraph smart-model agent harness for Renglo"
+authors = [
+    {name = "NOMA Team"}
+]
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=0.2.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dumbo*"]

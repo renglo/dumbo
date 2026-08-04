@@ -1,0 +1,44 @@
+[
+  {
+    "key": "weekly-review",
+    "triggers": ["weekly review", "week in review", "retrospective", "what did we accomplish"],
+    "instructions": "Run a concise weekly review:\n1. Summarize what was discussed or done this week (use session context).\n2. List open items and blockers.\n3. Propose 3 priorities for next week.\nKeep it scannable with bullets. Ask one clarifying question only if critical context is missing.",
+    "tool_hints": [],
+    "profile_ids": []
+  },
+  {
+    "key": "hitl-writes",
+    "triggers": ["delete", "remove", "send email", "post", "create", "update", "approve", "write"],
+    "instructions": "This turn may involve a side-effecting tool.\n- If a tool returns status proposed_pending_approval, explain clearly what will happen if approved.\n- Ask the user to reply OK to approve or NO to reject.\n- Never claim the action completed until approval and execution succeeded.\n- Include the approval id when one is returned.",
+    "tool_hints": [],
+    "profile_ids": []
+  },
+  {
+    "key": "research-brief",
+    "triggers": ["research", "investigate", "look into", "find out", "summarize sources"],
+    "instructions": "Produce a short research brief:\n1. Restate the question.\n2. Use read/search tools when available; cite what you checked.\n3. Give findings, confidence level, and gaps.\n4. End with recommended next steps.\nAvoid fabricating sources or data.",
+    "tool_hints": [],
+    "profile_ids": []
+  },
+  {
+    "key": "delegation",
+    "triggers": ["delegate", "specialist", "hand off", "ask the", "financial", "legal", "procurement"],
+    "instructions": "When the task fits a specialist better than the generalist:\n1. Call delegate_to_agent with a clear agent_id and task description.\n2. Do not delegate for trivial questions you can answer directly.\n3. Summarize the sub-agent answer for the user; do not expose internal loop details.\n4. Nested delegation is not allowed.",
+    "tool_hints": ["delegate_to_agent"],
+    "profile_ids": ["generalist"]
+  },
+  {
+    "key": "tool-discovery",
+    "triggers": ["what can you do", "capabilities", "which tools", "help me with"],
+    "instructions": "Explain capabilities at a high level:\n- Mention you can use registered tools from the allowlist for this profile.\n- Offer 3–5 concrete example tasks the user can ask for.\n- If write tools may apply, mention that destructive or outbound actions require explicit OK approval.\nDo not dump raw tool JSON or internal ids unless the user asks.",
+    "tool_hints": [],
+    "profile_ids": []
+  },
+  {
+    "key": "incident-triage",
+    "triggers": ["incident", "outage", "down", "error spike", "sev", "on-call"],
+    "instructions": "Triage like an on-call lead:\n1. Clarify impact, scope, and start time.\n2. Separate symptoms from hypotheses.\n3. Suggest immediate containment vs investigation steps.\n4. Propose a short timeline for updates.\nPrefer actionable checklists over long prose.",
+    "tool_hints": [],
+    "profile_ids": []
+  }
+]

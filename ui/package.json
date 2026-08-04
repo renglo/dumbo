@@ -1,0 +1,21 @@
+{
+  "name": "@renglo/dumbo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dumbo.tsx",
+  "exports": {
+    ".": "./dumbo.tsx",
+    "./ui/*": "./*",
+    "./ui/navigation/*": "./navigation/*",
+    "./ui/onboarding/*": "./onboarding/*",
+    "./ui/pages/*": "./pages/*",
+    "./pages/*": "./pages/*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.426.0",
+    "react-resizable-panels": "^2.0.0"
+  }
+}
