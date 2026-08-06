@@ -1,8 +1,19 @@
-"""schd_tools documents for Dumbo public-API demo tools."""
+"""schd_tools documents for Dumbo public-API demo tools.
+
+``schd_tools.input`` is a blueprint string field. Values must be JSON text
+(``json.dumps``), not Python dicts — otherwise DataController stores
+``str(dict)`` (single quotes) and Dumbo cannot ``json.loads`` the schema.
+"""
 
 from __future__ import annotations
 
+import json
 from typing import Any
+
+
+def _input_json(params: dict[str, str]) -> str:
+    return json.dumps(params, ensure_ascii=False)
+
 
 DEMO_SCHD_TOOLS: list[dict[str, Any]] = [
     {
@@ -15,9 +26,11 @@ DEMO_SCHD_TOOLS: list[dict[str, Any]] = [
             "Use for current tech/startup news, trending HN posts, or 'what is hot in tech today'. "
             "Returns real-time data the model cannot know from training."
         ),
-        "input": {
-            "limit": "Number of top stories to return (1-20, default 5)",
-        },
+        "input": _input_json(
+            {
+                "limit": "Number of top stories to return (1-20, default 5)",
+            }
+        ),
         "output": "_",
     },
     {
@@ -30,9 +43,14 @@ DEMO_SCHD_TOOLS: list[dict[str, Any]] = [
             "Use when the user asks about a topic, person, place, or concept and you need "
             "an up-to-date encyclopedic summary from Wikipedia."
         ),
-        "input": {
-            "title": "Wikipedia article title or topic (e.g. OpenAI, Python programming language)",
-        },
+        "input": _input_json(
+            {
+                "title": (
+                    "Wikipedia article title or topic "
+                    "(e.g. OpenAI, Python programming language)"
+                ),
+            }
+        ),
         "output": "_",
     },
     {
@@ -43,12 +61,15 @@ DEMO_SCHD_TOOLS: list[dict[str, Any]] = [
         "init": "_",
         "instructions": (
             "Use for today's currency conversion rates, forex, or 'how much is X in Y'. "
-            "Rates are live market reference data."
+            "Rates are live market reference data. Always pass from/to currency codes "
+            "(e.g. from=SAR, to=USD) matching the user's question."
         ),
-        "input": {
-            "from": "Base currency ISO code (default USD)",
-            "to": "Comma-separated target codes (default EUR,GBP,JPY,MXN)",
-        },
+        "input": _input_json(
+            {
+                "from": "Base currency ISO code (default USD)",
+                "to": "Comma-separated target codes (default EUR,GBP,JPY,MXN)",
+            }
+        ),
         "output": "_",
     },
 ]

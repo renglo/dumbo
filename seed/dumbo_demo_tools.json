@@ -6,9 +6,7 @@
     "handler": "dumbo/fetch_hacker_news",
     "init": "_",
     "instructions": "Use for current tech/startup news, trending HN posts, or what is hot in tech today. Returns real-time data the model cannot know from training.",
-    "input": {
-      "limit": "Number of top stories to return (1-20, default 5)"
-    },
+    "input": "{\"limit\":\"Number of top stories to return (1-20, default 5)\"}",
     "output": "_"
   },
   {
@@ -18,9 +16,7 @@
     "handler": "dumbo/fetch_wikipedia_summary",
     "init": "_",
     "instructions": "Use when the user asks about a topic, person, place, or concept and you need an up-to-date encyclopedic summary from Wikipedia.",
-    "input": {
-      "title": "Wikipedia article title or topic (e.g. OpenAI, Python programming language)"
-    },
+    "input": "{\"title\":\"Wikipedia article title or topic (e.g. OpenAI, Python programming language)\"}",
     "output": "_"
   },
   {
@@ -29,11 +25,8 @@
     "goal": "Current FX rates from ECB via Frankfurter",
     "handler": "dumbo/fetch_exchange_rates",
     "init": "_",
-    "instructions": "Use for today's currency conversion rates, forex, or how much is X in Y. Rates are live market reference data.",
-    "input": {
-      "from": "Base currency ISO code (default USD)",
-      "to": "Comma-separated target codes (default EUR,GBP,JPY,MXN)"
-    },
+    "instructions": "Use for today's currency conversion rates, forex, or how much is X in Y. Rates are live market reference data. Always pass from/to currency codes (e.g. from=SAR, to=USD) matching the user's question.",
+    "input": "{\"from\":\"Base currency ISO code (default USD)\",\"to\":\"Comma-separated target codes (default EUR,GBP,JPY,MXN)\"}",
     "output": "_"
   }
 ]

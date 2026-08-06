@@ -14,6 +14,7 @@ from .config import ConfigStore
 from .demo_tools import DEMO_SCHD_TOOLS
 from .profiles import Profiles
 from .skills import Skills
+from .tools import parse_schd_input_field
 
 
 def _load_seed_skills() -> List[Dict[str, Any]]:
@@ -81,30 +82,81 @@ class DumboOnboardings:
             "output": response,
         }
 
+    @staticmethod
+    def _schd_input_is_valid_json(raw: Any) -> bool:
+        """True when ``input`` is already JSON text (or a structured dict/list)."""
+        if isinstance(raw, (dict, list)):
+            return True
+        if not isinstance(raw, str):
+            return False
+        s = raw.strip()
+        if not s or s == "_":
+            return False
+        try:
+            json.loads(s)
+            return True
+        except json.JSONDecodeError:
+            return False
+
     def ensure_demo_tools(self, portfolio: str, org: str = "_all") -> Dict[str, Any]:
-        """Register public-API demo schd_tools when their key is not already present."""
+        """Register demo schd_tools; repair legacy Python-repr ``input`` on existing rows."""
         listed = self.DAC.get_a_b(portfolio, org, "schd_tools", limit=500)
-        existing_keys: set[str] = set()
+        by_key: Dict[str, Dict[str, Any]] = {}
         if listed.get("success"):
             for doc in listed.get("items", []):
                 k = str(doc.get("key") or "").strip()
                 if k:
-                    existing_keys.add(k)
+                    by_key[k] = doc
 
         created: List[str] = []
+        repaired: List[str] = []
         skipped: List[str] = []
         failed: List[str] = []
-        for doc in DEMO_SCHD_TOOLS:
-            key = str(doc.get("key") or "").strip()
+        for seed in DEMO_SCHD_TOOLS:
+            key = str(seed.get("key") or "").strip()
             if not key:
                 continue
-            if key in existing_keys:
+            existing = by_key.get(key)
+            if existing is None:
+                response = self.create_schd_tool_doc(portfolio, org, seed)
+                if response.get("success"):
+                    created.append(key)
+                    by_key[key] = seed
+                else:
+                    failed.append(key)
+                continue
+
+            # Backward compat: rows written with str(dict) still parse via
+            # literal_eval in Tools, but re-write as JSON for consumers/UI.
+            if self._schd_input_is_valid_json(existing.get("input")):
                 skipped.append(key)
                 continue
-            response = self.create_schd_tool_doc(portfolio, org, doc)
+
+            # Prefer seed JSON; fall back to re-serializing a legacy parse.
+            new_input = seed.get("input")
+            if not isinstance(new_input, str) or not new_input.strip():
+                parsed = parse_schd_input_field(existing.get("input"))
+                if isinstance(parsed, (dict, list)):
+                    new_input = json.dumps(parsed, ensure_ascii=False)
+                else:
+                    failed.append(key)
+                    continue
+
+            doc_id = existing.get("_id")
+            if not doc_id:
+                failed.append(key)
+                continue
+
+            patch: Dict[str, Any] = {"input": new_input}
+            # Keep instructions in sync when we ship clearer tool guidance.
+            if seed.get("instructions"):
+                patch["instructions"] = seed["instructions"]
+
+            response, _status = self.DAC.put_a_b_c(
+                portfolio, org, "schd_tools", str(doc_id), patch
+            )
             if response.get("success"):
-                created.append(key)
-                existing_keys.add(key)
+                repaired.append(key)
             else:
                 failed.append(key)
 
@@ -112,6 +164,7 @@ class DumboOnboardings:
             "success": not failed,
             "action": "ensure_demo_tools",
             "created": created,
+            "repaired": repaired,
             "skipped": skipped,
             "failed": failed,
         }

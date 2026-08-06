@@ -103,6 +103,8 @@ Registered per org in `schd_tools` (via onboarding or Schd UI). The active **`du
 
 **Already onboarded at `_all` only?** Re-seed for your org: `POST /_schd/run/dumbo/seed_demo_tools` with `{"portfolio":"<id>","org":"<your-org>"}`.
 
+`schd_tools.input` must be **JSON text** (blueprint type `string`). Seeding stores `json.dumps({...})`. If older rows were written as Python `str(dict)` (single quotes), Dumbo still parses them at runtime; re-running `seed_demo_tools` rewrites those rows to valid JSON.
+
 Example chat prompts: *“What’s trending on Hacker News?”*, *“Summarize Wikipedia on LangGraph”*, *“USD to EUR rate today?”*
 
 ## Blueprints

@@ -4,6 +4,7 @@ Build ToolDefinition rows from ``schd_tools`` (same contract as CLAW Tools).
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 from typing import Any, Optional
@@ -11,6 +12,47 @@ from typing import Any, Optional
 from .class_prototypes import ToolDefinition
 
 _logger = logging.getLogger(__name__)
+
+
+def parse_schd_input_field(raw: Any) -> Any:
+    """
+    Normalize ``schd_tools.input`` for schema conversion.
+
+    Accepts:
+    - dict / list (already structured)
+    - JSON string (preferred storage for blueprint type=string)
+    - Python repr string from legacy ``str(dict)`` writes (single quotes)
+    """
+    if raw is None:
+        return {}
+    if isinstance(raw, (dict, list)):
+        return raw
+    if not isinstance(raw, str):
+        return raw
+
+    s = raw.strip()
+    if not s or s == "_":
+        return {}
+
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    # Legacy: DataController stored str(dict) → "{'from': '...'}"
+    if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
+        try:
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, (dict, list)):
+                _logger.info(
+                    "dumbo.tools: parsed legacy Python-repr schd_tools.input "
+                    "(re-seed recommended so Dynamo stores JSON)"
+                )
+                return parsed
+        except (ValueError, SyntaxError):
+            pass
+
+    return None
 
 
 class Tools:
@@ -127,20 +169,13 @@ class Tools:
         else:
             desc = f"{goal} {instr}".strip()
 
-        schema: Any = doc.get("input")
-        if isinstance(schema, str):
-            s = schema.strip()
-            if not s:
-                schema = {}
-            else:
-                try:
-                    schema = json.loads(s)
-                except Exception:
-                    _logger.warning(
-                        "dumbo.tools: invalid JSON in input for tool %r; using empty object schema",
-                        tool_key,
-                    )
-                    schema = {}
+        schema = parse_schd_input_field(doc.get("input"))
+        if schema is None:
+            _logger.warning(
+                "dumbo.tools: invalid JSON in input for tool %r; using empty object schema",
+                tool_key,
+            )
+            schema = {}
         schema = Tools.schd_input_to_json_schema(schema)
         schema, repaired = Tools.normalize_openai_function_parameters(schema)
         if repaired:
