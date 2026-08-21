@@ -113,6 +113,7 @@ class GenericAgent:
         self._ext_config = None
         self._profiles: Optional[Profiles] = None
         self._skills: Optional[Skills] = None
+        self._last_assistant_event_id: Optional[str] = None
         self.graph = self._build_graph()
 
     def _get_context(self) -> RequestContext:
@@ -174,6 +175,8 @@ class GenericAgent:
             return
         try:
             self._sessions.append_event(event)
+            if event.event_type == "assistant_message":
+                self._last_assistant_event_id = event.event_id
         except Exception as exc:
             _logger.warning("Failed to persist event %s: %s", event.event_type, exc)
             return
@@ -355,11 +358,25 @@ class GenericAgent:
                     "success": False,
                     "action": action,
                     "input": payload,
-                    "output": {"error": str(exc), "reply": partial},
+                    "output": {
+                        "error": str(exc),
+                        "reply": partial,
+                        "session_id": ss.session_id,
+                        "turn_id": ss.get_active_turn_id(),
+                        "assistant_event_id": self._last_assistant_event_id,
+                        "entity_type": context.entity_type,
+                        "entity_id": context.entity_id,
+                        "thread": context.thread,
+                    },
                 }
 
             summary = {
                 "session_id": ss.session_id,
+                "turn_id": ss.get_active_turn_id(),
+                "assistant_event_id": self._last_assistant_event_id,
+                "entity_type": context.entity_type,
+                "entity_id": context.entity_id,
+                "thread": context.thread,
                 "agent_id": profile.id,
                 "model": model_name,
                 "reply": final_state.get("reply"),
@@ -383,6 +400,7 @@ class GenericAgent:
             self._sessions = None
             self._models = None
             self._approvals = None
+            self._last_assistant_event_id = None
 
     def _handle_approval_shortcut(
         self,
@@ -506,6 +524,29 @@ class GenericAgent:
             max_messages=max_messages,
             max_turns=max_turns,
         ):
+            if event.event_type == "channel_delivery":
+                status = str(event.payload.get("status") or "")
+                if status != "failed":
+                    continue
+                channel = str(event.payload.get("channel") or "channel")
+                err = (
+                    event.payload.get("provider_error")
+                    or event.payload.get("error")
+                    or event.payload.get("provider_status")
+                    or "unknown error"
+                )
+                if isinstance(err, (dict, list)):
+                    err = json.dumps(err, default=str)[:400]
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            f"[channel_delivery failed on {channel}] "
+                            f"The previous assistant reply was not delivered: {err}"
+                        ),
+                    }
+                )
+                continue
             role = "user" if event.event_type == "user_message" else "assistant"
             text = event.payload.get("text") or event.payload.get("message") or ""
             if str(text).strip():

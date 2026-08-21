@@ -19,6 +19,7 @@ ROLL_EVENT_TYPES = frozenset(
         "tool_result",
         "dumbo_event",
         "dumbo_approval",
+        "channel_delivery",
     }
 )
 
@@ -30,6 +31,7 @@ PROMPT_SKIP_TYPES = frozenset(
 )
 
 CHAT_EVENT_TYPES = frozenset({"user_message", "assistant_message"})
+HISTORY_EVENT_TYPES = frozenset({"user_message", "assistant_message", "channel_delivery"})
 
 
 def format_session_key(entity_type: str, entity_id: str, thread_id: str) -> str:
@@ -138,6 +140,18 @@ class Sessions:
             }
             return _sanitize_for_dynamo(row)
 
+        if et == "channel_delivery":
+            body = _sanitize_for_dynamo(dict(event.payload))
+            row = {
+                "_type": et,
+                "_out": {
+                    "role": "system",
+                    "content": body,
+                },
+                "_meta": _sanitize_for_dynamo(meta),
+            }
+            return _sanitize_for_dynamo(row)
+
         body = _sanitize_for_dynamo(dict(event.payload))
         row = {
             "_type": et,
@@ -175,6 +189,21 @@ class Sessions:
         if et in ("user_message", "assistant_message"):
             content = out.get("content")
             payload = {"text": content if isinstance(content, str) else json.dumps(content, default=str)}
+            return SessionEvent(
+                event_id=event_id,
+                session_id=sid,
+                event_type=et,
+                timestamp=ts,
+                payload=payload,
+                metadata=extra_meta,
+            )
+
+        if et == "channel_delivery":
+            content = out.get("content")
+            if isinstance(content, dict):
+                payload = dict(content)
+            else:
+                payload = {"status": "unknown", "detail": content}
             return SessionEvent(
                 event_id=event_id,
                 session_id=sid,
@@ -277,9 +306,12 @@ class Sessions:
             batch: list[SessionEvent] = []
             for m in turn.get("events") or []:
                 ev = self._message_to_event(session_id, m)
-                if not ev or ev.event_type not in CHAT_EVENT_TYPES:
+                if not ev or ev.event_type not in HISTORY_EVENT_TYPES:
                     continue
                 if ev.event_type in PROMPT_SKIP_TYPES:
+                    continue
+                if ev.event_type == "channel_delivery":
+                    batch.append(ev)
                     continue
                 text = ev.payload.get("text") or ev.payload.get("message") or ""
                 if str(text).strip():
