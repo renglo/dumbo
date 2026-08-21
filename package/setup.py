@@ -6,7 +6,7 @@ Flat LangGraph smart-model agent harness for the NOMA / Renglo platform
 from setuptools import setup, find_packages
 
 setup(
-    name="dumbo-mod",
+    name="renglo-dumbo",
     version="1.0.0",
     description="Dumbo — flat LangGraph smart-model agent harness for Renglo",
     author="NOMA Team",

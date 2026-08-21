@@ -2,7 +2,7 @@
 
 Dumbo is a **flat LangGraph smart-model agent harness** for Renglo. One shared ReAct graph is parameterized by pure-data **profiles** (`identity` + `tool_allowlist`). Continuity uses Renglo **session turns** (not Postgres checkpoints). Write tools can require **HITL** via `dumbo_approvals`.
 
-The implementation lives under `package/` as the installable Python module **`dumbo-mod`**.
+The implementation lives under `package/` as the installable Python distribution **`renglo-dumbo`** (import package `dumbo`).
 
 ## What it provides
 
@@ -129,7 +129,7 @@ extensions/dumbo/
 ├── docs/
 ├── ui/                      # console chat + onboarding
 └── package/
-    ├── pyproject.toml       # dumbo-mod
+    ├── pyproject.toml       # renglo-dumbo
     └── dumbo/handlers/      # GenericAgent, sessions, tools, approvals, …
 ```
 
