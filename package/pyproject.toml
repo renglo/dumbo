@@ -24,3 +24,6 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["dumbo*"]
+
+[tool.setuptools.package-data]
+"*" = ["blueprints/*.json"]

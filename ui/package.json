@@ -1,7 +1,6 @@
 {
   "name": "@renglo/dumbo",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
   "main": "./dumbo.tsx",
   "exports": {
