@@ -2,6 +2,7 @@ import { Brain, EllipsisVertical, MessagesSquare, Settings, Settings2, SlidersHo
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { wlLogoUrl } from "@/lib/branding";
 
 interface ToolMenuProps {
   portfolio: string;
@@ -38,7 +39,7 @@ export default function DumboSheetNav({
             className="group flex h-11 w-11 shrink-0 items-center justify-center gap-2 md:h-8 md:w-8 md:text-base"
           >
             <img
-              src={`${import.meta.env.VITE_WL_LOGO}`}
+              src={wlLogoUrl()}
               className="ml-auto h-12 w-12"
               alt="Logo"
             />
