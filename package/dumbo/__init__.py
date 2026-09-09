@@ -10,7 +10,14 @@ def _get_dumbo_onboardings():
     return DumboOnboardings
 
 
+def _get_initialize_extension():
+    from dumbo.handlers.initialize_extension import InitializeExtension
+
+    return InitializeExtension
+
+
 HANDLERS = {
+    "initialize_extension": _get_initialize_extension,
     "dumbo_onboardings": _get_dumbo_onboardings,
     "seed_demo_tools": lambda: __import__(
         "dumbo.handlers.seed_demo_tools", fromlist=["SeedDemoTools"]
