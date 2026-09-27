@@ -25,15 +25,16 @@ from renglo.data.data_controller import DataController
 from renglo.schd.schd_controller import SchdController
 from renglo.session.session_controller import SessionController
 
-from .approvals import Approvals
-from .class_prototypes import AgentProfile, SessionEvent, ToolDefinition, ToolResult
-from .config import ConfigStore
-from .delegation import run_subagent_loop
-from .models import Models
-from .profiles import Profiles
-from .sessions import Sessions
-from .skills import Skills
-from .tools import Tools
+from ..lib.approvals import Approvals
+from ..lib.describe import describe_document
+from ..lib.class_prototypes import AgentProfile, SessionEvent, ToolDefinition, ToolResult
+from ..lib.config import ConfigStore
+from ..lib.delegation import run_subagent_loop
+from ..lib.models import Models
+from ..lib.profiles import Profiles
+from ..lib.sessions import Sessions
+from ..lib.skills import Skills
+from ..lib.tools import Tools
 
 _logger = logging.getLogger(__name__)
 
@@ -181,6 +182,76 @@ class GenericAgent:
             _logger.warning("Failed to persist event %s: %s", event.event_type, exc)
             return
         self._emit_roll(event)
+
+    def describe(self, payload=None):
+        return describe_document(
+            "generic_agent",
+            "Dumbo agent",
+            "Run one Dumbo chat turn. portfolio and org are injected by the platform. "
+            "message may also arrive as data, data.message, or data.text.",
+            {
+                "message": {
+                    "type": "string",
+                    "title": "Message",
+                    "description": "User message. Optional when data carries the text.",
+                },
+                "connectionId": {
+                    "type": "string",
+                    "title": "WebSocket connection",
+                    "description": "Connection id for streaming tokens back to the console.",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "title": "Entity type",
+                    "default": "dumbo-chat",
+                },
+                "entity_id": {
+                    "type": "string",
+                    "title": "Entity id",
+                    "description": "Session entity. Defaults to dumbo-<org>.",
+                },
+                "thread": {
+                    "type": "string",
+                    "title": "Thread",
+                    "default": "main",
+                },
+                "agent_id": {
+                    "type": "string",
+                    "title": "Profile id",
+                    "description": "dumbo_profiles document id. Alias: agentId. Falls back to the config default.",
+                },
+                "public_user": {
+                    "type": "string",
+                    "title": "Public user",
+                },
+                "tool_allowlist": {
+                    "type": "array",
+                    "title": "Tool allowlist",
+                    "description": "Overrides the profile allowlist for this turn. Alias: tool_shortlist. Use [\"*\"] for every tool.",
+                    "items": {"type": "string"},
+                },
+                "metadata": {
+                    "type": "object",
+                    "title": "Metadata",
+                },
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "turn_id": {"type": "string"},
+                    "assistant_event_id": {"type": "string"},
+                    "entity_type": {"type": "string"},
+                    "entity_id": {"type": "string"},
+                    "thread": {"type": "string"},
+                    "agent_id": {"type": "string"},
+                    "model": {"type": "string"},
+                    "reply": {"type": "string"},
+                    "loaded_skill_keys": {"type": "array", "items": {"type": "string"}},
+                    "pending_approvals": {"type": "array", "items": {"type": "object"}},
+                },
+            },
+        )
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         action = "run > dumbo/generic_agent"
@@ -672,7 +743,10 @@ class GenericAgent:
                     + ", ".join(f"{s.id} ({s.name})" for s in specs)
                 )
         if self._tool_defs:
-            names = ", ".join(td.tool_name for td in self._tool_defs)
+            names = ", ".join(
+                str((td.metadata or {}).get("openai_name") or td.tool_name)
+                for td in self._tool_defs
+            )
             dynamic_parts.append(
                 f"Bound tools for profile {self._profile.id} (allowlist applied): {names}"
             )
@@ -934,7 +1008,7 @@ class GenericAgent:
 
         for tc in tool_calls:
             fn = tc.get("function") or {}
-            name = str(fn.get("name") or "")
+            name = Tools.resolve_tool_name(self._tool_defs, str(fn.get("name") or ""))
             raw_args = fn.get("arguments") or "{}"
             try:
                 args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)

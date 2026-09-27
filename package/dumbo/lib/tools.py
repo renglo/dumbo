@@ -7,11 +7,16 @@ from __future__ import annotations
 import ast
 import json
 import logging
+import re
 from typing import Any, Optional
 
 from .class_prototypes import ToolDefinition
 
 _logger = logging.getLogger(__name__)
+
+# OpenAI function names: https://platform.openai.com/docs/api-reference/chat
+_OPENAI_FUNCTION_NAME = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+_OPENAI_FUNCTION_NAME_MAX = 64
 
 
 def parse_schd_input_field(raw: Any) -> Any:
@@ -242,17 +247,80 @@ class Tools:
         return out
 
     @staticmethod
+    def openai_function_name(tool_key: str, used: Optional[set[str]] = None) -> str:
+        """
+        Name safe to send as ``tools[].function.name``.
+
+        ``schd_tools`` keys look like ``extension/handler``. The slash is valid in
+        the catalog and invalid in the model API, so it becomes ``_``.
+        """
+        key = str(tool_key or "").strip()
+        if _OPENAI_FUNCTION_NAME.fullmatch(key) and (used is None or key not in used):
+            return key
+
+        cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", key).strip("_") or "tool"
+        candidate = cleaned[:_OPENAI_FUNCTION_NAME_MAX]
+        if used is None or candidate not in used:
+            return candidate
+
+        n = 2
+        while True:
+            suffix = f"_{n}"
+            stem = cleaned[: _OPENAI_FUNCTION_NAME_MAX - len(suffix)].rstrip("_") or "tool"
+            candidate = f"{stem}{suffix}"[:_OPENAI_FUNCTION_NAME_MAX]
+            if candidate not in used:
+                return candidate
+            n += 1
+
+    @staticmethod
+    def assign_openai_names(tools: list[ToolDefinition]) -> None:
+        """Store ``metadata['openai_name']`` on each tool. Real ``tool_name`` stays the schd key."""
+        used: set[str] = set()
+        rewritten = 0
+        example: Optional[tuple[str, str]] = None
+        for td in tools:
+            openai_name = Tools.openai_function_name(td.tool_name, used)
+            used.add(openai_name)
+            meta = dict(td.metadata or {})
+            meta["openai_name"] = openai_name
+            td.metadata = meta
+            if openai_name != td.tool_name:
+                rewritten += 1
+                if example is None:
+                    example = (td.tool_name, openai_name)
+        if rewritten and example:
+            _logger.info(
+                "dumbo.tools: rewrote %d tool name(s) for the model API (example: %r -> %r)",
+                rewritten,
+                example[0],
+                example[1],
+            )
+
+    @staticmethod
+    def resolve_tool_name(tools: list[ToolDefinition], name: str) -> str:
+        """Map a model function name back to the ``schd_tools`` key."""
+        for td in tools:
+            if td.tool_name == name:
+                return td.tool_name
+        for td in tools:
+            if str((td.metadata or {}).get("openai_name") or "") == name:
+                return td.tool_name
+        return name
+
+    @staticmethod
     def tool_definitions_to_openai(tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+        Tools.assign_openai_names(tools)
         api_tools: list[dict[str, Any]] = []
         for td in tools:
             params = td.input_schema if isinstance(td.input_schema, dict) else {}
             if not params:
                 params = {"type": "object", "properties": {}}
+            fn_name = str((td.metadata or {}).get("openai_name") or td.tool_name)
             api_tools.append(
                 {
                     "type": "function",
                     "function": {
-                        "name": td.tool_name,
+                        "name": fn_name,
                         "description": (td.description or "")[:8000],
                         "parameters": params,
                     },

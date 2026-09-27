@@ -10,11 +10,12 @@ from renglo.auth.auth_controller import AuthController
 from renglo.common import load_config
 from renglo.data.data_controller import DataController
 
-from .config import ConfigStore
-from .demo_tools import DEMO_SCHD_TOOLS
-from .profiles import Profiles
-from .skills import Skills
-from .tools import parse_schd_input_field
+from ..lib.config import ConfigStore
+from ..lib.describe import describe_document
+from ..lib.demo_tools import DEMO_SCHD_TOOLS
+from ..lib.profiles import Profiles
+from ..lib.skills import Skills
+from ..lib.tools import parse_schd_input_field
 
 
 def _load_seed_skills() -> List[Dict[str, Any]]:
@@ -254,6 +255,20 @@ class DumboOnboardings:
             "input": [],
             "output": response,
         }
+
+    def describe(self, payload=None):
+        return describe_document(
+            "dumbo_onboardings",
+            "Dumbo onboarding",
+            "Install Dumbo tools, default config, profile, example skills, and demo tools. "
+            "portfolio is injected by the platform.",
+            {},
+            output_schema={
+                "type": "array",
+                "description": "One result object per setup step.",
+                "items": {"type": "object"},
+            },
+        )
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
