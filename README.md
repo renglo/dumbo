@@ -130,7 +130,9 @@ extensions/dumbo/
 ├── ui/                      # console chat + onboarding
 └── package/
     ├── pyproject.toml       # renglo-dumbo
-    └── dumbo/handlers/      # GenericAgent, sessions, tools, approvals, …
+    └── dumbo/
+        ├── handlers/        # scheduler/agent entry points (run)
+        └── lib/             # types, stores, and helpers handlers call
 ```
 
 ## License

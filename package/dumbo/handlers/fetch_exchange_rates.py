@@ -8,12 +8,46 @@ import urllib.error
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from .demo_http import fetch_json, tool_error, tool_ok
+from ..lib.demo_http import fetch_json, tool_error, tool_ok
+from ..lib.describe import describe_document
 
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 
 
 class FetchExchangeRates:
+    def describe(self, payload=None):
+        return describe_document(
+            "fetch_exchange_rates",
+            "Live exchange rates",
+            "Current FX rates from the European Central Bank via Frankfurter. "
+            "from and to also accept the aliases base and targets.",
+            {
+                "from": {
+                    "type": "string",
+                    "title": "Base currency",
+                    "description": "ISO 4217 code. Alias: base.",
+                    "default": "USD",
+                    "pattern": "^[A-Z]{3}$",
+                },
+                "to": {
+                    "type": "string",
+                    "title": "Target currencies",
+                    "description": "Comma-separated ISO codes, up to 8. Alias: targets (string or array).",
+                    "default": "EUR,GBP,JPY,MXN",
+                },
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string"},
+                    "fetched_at": {"type": "string", "format": "date-time"},
+                    "date": {"type": "string"},
+                    "base": {"type": "string"},
+                    "rates": {"type": "object", "additionalProperties": {"type": "number"}},
+                },
+            },
+        )
+
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         action = "fetch_exchange_rates"
         base = str(payload.get("from") or payload.get("base") or "USD").strip().upper()

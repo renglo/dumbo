@@ -1,0 +1,10 @@
+{
+  "handlers": {
+    "dumbo_onboardings": "dumbo.handlers.dumbo_onboardings.DumboOnboardings",
+    "fetch_exchange_rates": "dumbo.handlers.fetch_exchange_rates.FetchExchangeRates",
+    "fetch_hacker_news": "dumbo.handlers.fetch_hacker_news.FetchHackerNews",
+    "fetch_wikipedia_summary": "dumbo.handlers.fetch_wikipedia_summary.FetchWikipediaSummary",
+    "generic_agent": "dumbo.handlers.generic_agent.GenericAgent",
+    "seed_demo_tools": "dumbo.handlers.seed_demo_tools.SeedDemoTools"
+  }
+}
