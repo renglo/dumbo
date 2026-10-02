@@ -141,7 +141,7 @@ class GenericAgent:
         self._send_ws(doc)
 
     def _emit_roll(self, event: SessionEvent) -> None:
-        if event.event_type in ("user_message", "assistant_message"):
+        if event.event_type in ("user_message", "assistant_message", "error"):
             text = str(event.payload.get("text") or "")
             role = "user" if event.event_type == "user_message" else "assistant"
             self._send_ws(
@@ -171,17 +171,32 @@ class GenericAgent:
                 }
             )
 
-    def _save_event(self, event: SessionEvent) -> None:
+    def _save_event(self, event: SessionEvent) -> bool:
         if not self._sessions:
-            return
+            return False
         try:
             self._sessions.append_event(event)
             if event.event_type == "assistant_message":
                 self._last_assistant_event_id = event.event_id
         except Exception as exc:
             _logger.warning("Failed to persist event %s: %s", event.event_type, exc)
-            return
+            return False
         self._emit_roll(event)
+        return True
+
+    def _report_run_error(self, message: str) -> bool:
+        """Save and push a handler error. False when there is no turn yet."""
+        if not self._sessions:
+            return False
+        return self._save_event(
+            SessionEvent(
+                event_id=str(uuid.uuid4()),
+                session_id=self._sessions.session_id,
+                event_type="error",
+                timestamp=self._now(),
+                payload={"text": message},
+            )
+        )
 
     def describe(self, payload=None):
         return describe_document(
@@ -416,11 +431,11 @@ class GenericAgent:
                     "I hit an internal limit or error while working on that. "
                     f"Details: {exc}"
                 )
-                self._save_event(
+                reported = self._save_event(
                     SessionEvent(
                         event_id=str(uuid.uuid4()),
                         session_id=ss.session_id,
-                        event_type="assistant_message",
+                        event_type="error",
                         timestamp=self._now(),
                         payload={"text": partial},
                     )
@@ -432,6 +447,7 @@ class GenericAgent:
                     "output": {
                         "error": str(exc),
                         "reply": partial,
+                        "_error_reported": reported,
                         "session_id": ss.session_id,
                         "turn_id": ss.get_active_turn_id(),
                         "assistant_event_id": self._last_assistant_event_id,
@@ -466,6 +482,20 @@ class GenericAgent:
                 "action": action,
                 "input": payload,
                 "output": summary,
+            }
+        except Exception as exc:
+            _logger.exception("Dumbo handler failed: %s", exc)
+            message = f"The agent stopped before it could finish: {exc}"
+            reported = self._report_run_error(message)
+            return {
+                "success": False,
+                "action": action,
+                "input": payload,
+                "output": {
+                    "error": message,
+                    "reply": message,
+                    "_error_reported": reported,
+                },
             }
         finally:
             self._sessions = None
@@ -1026,7 +1056,17 @@ class GenericAgent:
                 )
             )
 
-            tr = self._execute_one_tool(name, args, call_id, session_id)
+            try:
+                tr = self._execute_one_tool(name, args, call_id, session_id)
+            except Exception as exc:
+                _logger.exception("Tool %s failed: %s", name, exc)
+                tr = ToolResult(
+                    tool_name=name,
+                    call_id=call_id,
+                    success=False,
+                    result={},
+                    error=f"{type(exc).__name__}: {exc}",
+                )
             result_payload = {
                 "tool": tr.tool_name,
                 "call_id": tr.call_id,
@@ -1045,6 +1085,22 @@ class GenericAgent:
                     payload=result_payload,
                 )
             )
+            if not tr.success:
+                detail = tr.error or "The tool failed."
+                if not isinstance(detail, str):
+                    try:
+                        detail = json.dumps(detail, default=str)
+                    except Exception:
+                        detail = str(detail)
+                self._save_event(
+                    SessionEvent(
+                        event_id=str(uuid.uuid4()),
+                        session_id=session_id,
+                        event_type="error",
+                        timestamp=self._now(),
+                        payload={"text": f"{tr.tool_name} failed: {detail[:2000]}"},
+                    )
+                )
             messages.append(
                 {
                     "role": "tool",

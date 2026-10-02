@@ -343,6 +343,17 @@ export default function DumboChat({ portfolio, org, tool, tree, onNavigate }: Ag
       );
     }
 
+    if (type === "error") {
+      return (
+        <div
+          key={idx}
+          className="mb-2 flex max-w-[80%] flex-col self-start rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm"
+        >
+          {text}
+        </div>
+      );
+    }
+
     if (
       type === "dumbo_stream" ||
       type === "dumbo_event" ||
