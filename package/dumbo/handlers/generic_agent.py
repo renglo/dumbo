@@ -950,6 +950,76 @@ class GenericAgent:
         if ctx.connection_id:
             params.setdefault("connectionId", ctx.connection_id)
 
+        execution = meta.get("execution") if isinstance(meta.get("execution"), dict) else {}
+        rows = execution.get("latency_ms") if isinstance(execution.get("latency_ms"), list) else []
+        might_detach = any(
+            isinstance(row, dict) and int(row.get("high") or 0) > 25000 for row in rows
+        )
+        detach = "sync"
+        if might_detach:
+            from schd.lib.execution import should_detach
+            from renglo.schd.peer_config import placed_on_peer
+
+            detach = should_detach(execution, placed_on_peer(extension), args)
+        if detach == "async":
+            from renglo.runtime import attach_jwt_claims_to_payload
+            from renglo.schd.peer_runner import invoke_peer_event
+            from schd.lib.execution import match_latency
+
+            params["portfolio"] = ctx.portfolio
+            params["org"] = ctx.org
+            params["entity_type"] = ctx.entity_type
+            params["entity_id"] = ctx.entity_id
+            params["thread"] = ctx.thread
+            if ctx.public_user:
+                params["public_user"] = ctx.public_user
+            attach_jwt_claims_to_payload(params)
+            row = match_latency(execution, args)
+            turn_id = ""
+            if self._sessions is not None:
+                turn_id = str(self._sessions.get_active_turn_id() or "")
+            started = invoke_peer_event(
+                extension,
+                handler,
+                params,
+                completion={
+                    "call_id": call_id or "",
+                    "tool": name,
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "when": str(row.get("when") or ""),
+                },
+            )
+            if not started.get("success"):
+                return ToolResult(
+                    tool_name=name,
+                    call_id=call_id,
+                    success=False,
+                    result={},
+                    error=str(started.get("error") or "Could not start the peer call"),
+                )
+            try:
+                from schd.lib.execution import latency_sentence
+
+                wait = latency_sentence({"latency_ms": [row]} if row else execution)
+            except Exception:
+                wait = ""
+            return ToolResult(
+                tool_name=name,
+                call_id=call_id,
+                success=True,
+                result={
+                    "status": "running",
+                    "call_id": call_id,
+                    "when": str(row.get("when") or ""),
+                    "latency": wait,
+                    "guidance": (
+                        "The result will arrive on the session. "
+                        "Tell the user the expected wait and finish this turn."
+                    ),
+                },
+            )
+
         out = self.SHC.handler_call(ctx.portfolio, ctx.org, extension, handler, params)
         ok = bool(out.get("success"))
         err = None if ok else out.get("output")

@@ -160,6 +160,26 @@ class Tools:
         return extension, handler
 
     @staticmethod
+    def _execution_from_doc(raw: Any) -> dict[str, Any]:
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text in ("", "_"):
+                return {}
+            try:
+                raw = json.loads(text)
+            except json.JSONDecodeError:
+                return {}
+        if not isinstance(raw, dict):
+            return {}
+        try:
+            from schd.lib.execution import normalize_execution
+
+            return normalize_execution(raw)
+        except Exception:
+            rows = raw.get("latency_ms") or []
+            return {"latency_ms": rows} if rows else {}
+
+    @staticmethod
     def tool_definition_from_doc(doc: dict[str, Any]) -> Optional[ToolDefinition]:
         tool_key = str(doc.get("key") or "").strip()
         if not tool_key:
@@ -202,6 +222,14 @@ class Tools:
 
         extension, handler = Tools.extension_handler_from_doc(doc)
         requires_approval = bool(tool_init.get("requires_approval", False))
+        execution = Tools._execution_from_doc(doc.get("execution"))
+        latency = ""
+        try:
+            from schd.lib.execution import latency_sentence
+
+            latency = latency_sentence(execution)
+        except Exception:
+            latency = ""
 
         meta: dict[str, Any] = {
             "_id": doc.get("_id"),
@@ -210,7 +238,10 @@ class Tools:
             "handler": handler,
             "tool_init": tool_init,
             "requires_approval": requires_approval,
+            "execution": execution,
         }
+        if latency:
+            meta["latency"] = latency
         if label_str:
             meta["label"] = label_str
 
@@ -316,12 +347,16 @@ class Tools:
             if not params:
                 params = {"type": "object", "properties": {}}
             fn_name = str((td.metadata or {}).get("openai_name") or td.tool_name)
+            description = td.description or ""
+            latency = str((td.metadata or {}).get("latency") or "").strip()
+            if latency and latency not in description:
+                description = f"{description} {latency}".strip()
             api_tools.append(
                 {
                     "type": "function",
                     "function": {
                         "name": fn_name,
-                        "description": (td.description or "")[:8000],
+                        "description": description[:8000],
                         "parameters": params,
                     },
                 }
