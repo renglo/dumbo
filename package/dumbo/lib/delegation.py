@@ -61,7 +61,7 @@ def run_subagent_loop(
 
         for tc in tool_calls:
             fn = tc.get("function") or {}
-            name = str(fn.get("name") or "")
+            name = Tools.resolve_tool_name(tools, str(fn.get("name") or ""))
             raw_args = fn.get("arguments") or "{}"
             try:
                 args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)

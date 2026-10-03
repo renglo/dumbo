@@ -4,12 +4,37 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from ..lib.describe import describe_document
+
 from .dumbo_onboardings import DumboOnboardings
 
 
 class SeedDemoTools:
     def __init__(self) -> None:
         self._onboarding = DumboOnboardings()
+
+    def describe(self, payload=None):
+        return describe_document(
+            "seed_demo_tools",
+            "Seed demo tools",
+            "Re-register Dumbo public-API demo tools for one org. portfolio is injected by the platform.",
+            {
+                "org": {
+                    "type": "string",
+                    "title": "Org",
+                    "description": "Org to seed. Defaults to _all.",
+                    "default": "_all",
+                },
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "tools": {"type": "object"},
+                    "cache": {"type": "object"},
+                    "tree": {"type": "object"},
+                },
+            },
+        )
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         portfolio = str(payload.get("portfolio") or "").strip()

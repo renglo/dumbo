@@ -17,6 +17,7 @@ ROLL_EVENT_TYPES = frozenset(
         "assistant_message",
         "tool_call",
         "tool_result",
+        "error",
         "dumbo_event",
         "dumbo_approval",
         "channel_delivery",
@@ -129,13 +130,14 @@ class Sessions:
         et = event.event_type
         meta = self._base_meta(event)
 
-        if et in ("user_message", "assistant_message"):
+        if et in ("user_message", "assistant_message", "error"):
             text = event.payload.get("text")
             if text is None:
                 text = event.payload.get("message", "")
+            role = "user" if et == "user_message" else "assistant"
             row = {
                 "_type": et,
-                "_out": {"role": self._roll_role(et), "content": str(text)},
+                "_out": {"role": role, "content": str(text)},
                 "_meta": _sanitize_for_dynamo(meta),
             }
             return _sanitize_for_dynamo(row)

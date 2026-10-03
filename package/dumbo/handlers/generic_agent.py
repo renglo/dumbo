@@ -25,15 +25,16 @@ from renglo.data.data_controller import DataController
 from renglo.schd.schd_controller import SchdController
 from renglo.session.session_controller import SessionController
 
-from .approvals import Approvals
-from .class_prototypes import AgentProfile, SessionEvent, ToolDefinition, ToolResult
-from .config import ConfigStore
-from .delegation import run_subagent_loop
-from .models import Models
-from .profiles import Profiles
-from .sessions import Sessions
-from .skills import Skills
-from .tools import Tools
+from ..lib.approvals import Approvals
+from ..lib.describe import describe_document
+from ..lib.class_prototypes import AgentProfile, SessionEvent, ToolDefinition, ToolResult
+from ..lib.config import ConfigStore
+from ..lib.delegation import run_subagent_loop
+from ..lib.models import Models
+from ..lib.profiles import Profiles
+from ..lib.sessions import Sessions
+from ..lib.skills import Skills
+from ..lib.tools import Tools
 
 _logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ class GenericAgent:
         self._send_ws(doc)
 
     def _emit_roll(self, event: SessionEvent) -> None:
-        if event.event_type in ("user_message", "assistant_message"):
+        if event.event_type in ("user_message", "assistant_message", "error"):
             text = str(event.payload.get("text") or "")
             role = "user" if event.event_type == "user_message" else "assistant"
             self._send_ws(
@@ -170,17 +171,102 @@ class GenericAgent:
                 }
             )
 
-    def _save_event(self, event: SessionEvent) -> None:
+    def _save_event(self, event: SessionEvent) -> bool:
         if not self._sessions:
-            return
+            return False
         try:
             self._sessions.append_event(event)
             if event.event_type == "assistant_message":
                 self._last_assistant_event_id = event.event_id
         except Exception as exc:
             _logger.warning("Failed to persist event %s: %s", event.event_type, exc)
-            return
+            return False
         self._emit_roll(event)
+        return True
+
+    def _report_run_error(self, message: str) -> bool:
+        """Save and push a handler error. False when there is no turn yet."""
+        if not self._sessions:
+            return False
+        return self._save_event(
+            SessionEvent(
+                event_id=str(uuid.uuid4()),
+                session_id=self._sessions.session_id,
+                event_type="error",
+                timestamp=self._now(),
+                payload={"text": message},
+            )
+        )
+
+    def describe(self, payload=None):
+        return describe_document(
+            "generic_agent",
+            "Dumbo agent",
+            "Run one Dumbo chat turn. portfolio and org are injected by the platform. "
+            "message may also arrive as data, data.message, or data.text.",
+            {
+                "message": {
+                    "type": "string",
+                    "title": "Message",
+                    "description": "User message. Optional when data carries the text.",
+                },
+                "connectionId": {
+                    "type": "string",
+                    "title": "WebSocket connection",
+                    "description": "Connection id for streaming tokens back to the console.",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "title": "Entity type",
+                    "default": "dumbo-chat",
+                },
+                "entity_id": {
+                    "type": "string",
+                    "title": "Entity id",
+                    "description": "Session entity. Defaults to dumbo-<org>.",
+                },
+                "thread": {
+                    "type": "string",
+                    "title": "Thread",
+                    "default": "main",
+                },
+                "agent_id": {
+                    "type": "string",
+                    "title": "Profile id",
+                    "description": "dumbo_profiles document id. Alias: agentId. Falls back to the config default.",
+                },
+                "public_user": {
+                    "type": "string",
+                    "title": "Public user",
+                },
+                "tool_allowlist": {
+                    "type": "array",
+                    "title": "Tool allowlist",
+                    "description": "Overrides the profile allowlist for this turn. Alias: tool_shortlist. Use [\"*\"] for every tool.",
+                    "items": {"type": "string"},
+                },
+                "metadata": {
+                    "type": "object",
+                    "title": "Metadata",
+                },
+            },
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "turn_id": {"type": "string"},
+                    "assistant_event_id": {"type": "string"},
+                    "entity_type": {"type": "string"},
+                    "entity_id": {"type": "string"},
+                    "thread": {"type": "string"},
+                    "agent_id": {"type": "string"},
+                    "model": {"type": "string"},
+                    "reply": {"type": "string"},
+                    "loaded_skill_keys": {"type": "array", "items": {"type": "string"}},
+                    "pending_approvals": {"type": "array", "items": {"type": "object"}},
+                },
+            },
+        )
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         action = "run > dumbo/generic_agent"
@@ -345,11 +431,11 @@ class GenericAgent:
                     "I hit an internal limit or error while working on that. "
                     f"Details: {exc}"
                 )
-                self._save_event(
+                reported = self._save_event(
                     SessionEvent(
                         event_id=str(uuid.uuid4()),
                         session_id=ss.session_id,
-                        event_type="assistant_message",
+                        event_type="error",
                         timestamp=self._now(),
                         payload={"text": partial},
                     )
@@ -361,6 +447,7 @@ class GenericAgent:
                     "output": {
                         "error": str(exc),
                         "reply": partial,
+                        "_error_reported": reported,
                         "session_id": ss.session_id,
                         "turn_id": ss.get_active_turn_id(),
                         "assistant_event_id": self._last_assistant_event_id,
@@ -395,6 +482,20 @@ class GenericAgent:
                 "action": action,
                 "input": payload,
                 "output": summary,
+            }
+        except Exception as exc:
+            _logger.exception("Dumbo handler failed: %s", exc)
+            message = f"The agent stopped before it could finish: {exc}"
+            reported = self._report_run_error(message)
+            return {
+                "success": False,
+                "action": action,
+                "input": payload,
+                "output": {
+                    "error": message,
+                    "reply": message,
+                    "_error_reported": reported,
+                },
             }
         finally:
             self._sessions = None
@@ -672,7 +773,10 @@ class GenericAgent:
                     + ", ".join(f"{s.id} ({s.name})" for s in specs)
                 )
         if self._tool_defs:
-            names = ", ".join(td.tool_name for td in self._tool_defs)
+            names = ", ".join(
+                str((td.metadata or {}).get("openai_name") or td.tool_name)
+                for td in self._tool_defs
+            )
             dynamic_parts.append(
                 f"Bound tools for profile {self._profile.id} (allowlist applied): {names}"
             )
@@ -846,6 +950,76 @@ class GenericAgent:
         if ctx.connection_id:
             params.setdefault("connectionId", ctx.connection_id)
 
+        execution = meta.get("execution") if isinstance(meta.get("execution"), dict) else {}
+        rows = execution.get("latency_ms") if isinstance(execution.get("latency_ms"), list) else []
+        might_detach = any(
+            isinstance(row, dict) and int(row.get("high") or 0) > 25000 for row in rows
+        )
+        detach = "sync"
+        if might_detach:
+            from schd.lib.execution import should_detach
+            from renglo.schd.peer_config import placed_on_peer
+
+            detach = should_detach(execution, placed_on_peer(extension), args)
+        if detach == "async":
+            from renglo.runtime import attach_jwt_claims_to_payload
+            from renglo.schd.peer_runner import invoke_peer_event
+            from schd.lib.execution import match_latency
+
+            params["portfolio"] = ctx.portfolio
+            params["org"] = ctx.org
+            params["entity_type"] = ctx.entity_type
+            params["entity_id"] = ctx.entity_id
+            params["thread"] = ctx.thread
+            if ctx.public_user:
+                params["public_user"] = ctx.public_user
+            attach_jwt_claims_to_payload(params)
+            row = match_latency(execution, args)
+            turn_id = ""
+            if self._sessions is not None:
+                turn_id = str(self._sessions.get_active_turn_id() or "")
+            started = invoke_peer_event(
+                extension,
+                handler,
+                params,
+                completion={
+                    "call_id": call_id or "",
+                    "tool": name,
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "when": str(row.get("when") or ""),
+                },
+            )
+            if not started.get("success"):
+                return ToolResult(
+                    tool_name=name,
+                    call_id=call_id,
+                    success=False,
+                    result={},
+                    error=str(started.get("error") or "Could not start the peer call"),
+                )
+            try:
+                from schd.lib.execution import latency_sentence
+
+                wait = latency_sentence({"latency_ms": [row]} if row else execution)
+            except Exception:
+                wait = ""
+            return ToolResult(
+                tool_name=name,
+                call_id=call_id,
+                success=True,
+                result={
+                    "status": "running",
+                    "call_id": call_id,
+                    "when": str(row.get("when") or ""),
+                    "latency": wait,
+                    "guidance": (
+                        "The result will arrive on the session. "
+                        "Tell the user the expected wait and finish this turn."
+                    ),
+                },
+            )
+
         out = self.SHC.handler_call(ctx.portfolio, ctx.org, extension, handler, params)
         ok = bool(out.get("success"))
         err = None if ok else out.get("output")
@@ -934,7 +1108,7 @@ class GenericAgent:
 
         for tc in tool_calls:
             fn = tc.get("function") or {}
-            name = str(fn.get("name") or "")
+            name = Tools.resolve_tool_name(self._tool_defs, str(fn.get("name") or ""))
             raw_args = fn.get("arguments") or "{}"
             try:
                 args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
@@ -952,7 +1126,17 @@ class GenericAgent:
                 )
             )
 
-            tr = self._execute_one_tool(name, args, call_id, session_id)
+            try:
+                tr = self._execute_one_tool(name, args, call_id, session_id)
+            except Exception as exc:
+                _logger.exception("Tool %s failed: %s", name, exc)
+                tr = ToolResult(
+                    tool_name=name,
+                    call_id=call_id,
+                    success=False,
+                    result={},
+                    error=f"{type(exc).__name__}: {exc}",
+                )
             result_payload = {
                 "tool": tr.tool_name,
                 "call_id": tr.call_id,
@@ -971,6 +1155,22 @@ class GenericAgent:
                     payload=result_payload,
                 )
             )
+            if not tr.success:
+                detail = tr.error or "The tool failed."
+                if not isinstance(detail, str):
+                    try:
+                        detail = json.dumps(detail, default=str)
+                    except Exception:
+                        detail = str(detail)
+                self._save_event(
+                    SessionEvent(
+                        event_id=str(uuid.uuid4()),
+                        session_id=session_id,
+                        event_type="error",
+                        timestamp=self._now(),
+                        payload={"text": f"{tr.tool_name} failed: {detail[:2000]}"},
+                    )
+                )
             messages.append(
                 {
                     "role": "tool",

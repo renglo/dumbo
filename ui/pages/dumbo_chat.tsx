@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 
 import ChatHistory from "@/components/console/chat-history";
 import ChatInput from "@/components/console/chat-input";
+import { ChatSocketProvider } from "@/components/console/chat-socket";
 
 interface AgentProps {
   portfolio: string;
@@ -342,6 +343,17 @@ export default function DumboChat({ portfolio, org, tool, tree, onNavigate }: Ag
       );
     }
 
+    if (type === "error") {
+      return (
+        <div
+          key={idx}
+          className="mb-2 flex max-w-[80%] flex-col self-start rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm"
+        >
+          {text}
+        </div>
+      );
+    }
+
     if (
       type === "dumbo_stream" ||
       type === "dumbo_event" ||
@@ -400,6 +412,7 @@ export default function DumboChat({ portfolio, org, tool, tree, onNavigate }: Ag
   };
 
   return (
+    <ChatSocketProvider onMessage={(data) => messageAction({ type: "rs", update: data })}>
     <PanelGroup direction="horizontal">
       <Panel defaultSize={97} minSize={70}>
         <span className="flex h-[calc(100vh-80px)] flex-col rounded-t-none">
@@ -475,5 +488,6 @@ export default function DumboChat({ portfolio, org, tool, tree, onNavigate }: Ag
         </span>
       </Panel>
     </PanelGroup>
+    </ChatSocketProvider>
   );
 }
