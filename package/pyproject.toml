@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "renglo-dumbo"
-version = "1.0.4rc2"
+version = "1.0.4"
 description = "Dumbo — flat LangGraph smart-model agent harness for Renglo"
 authors = [
     {name = "NOMA Team"}
