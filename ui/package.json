@@ -2,7 +2,7 @@
   "name": "@renglo/dumbo",
   "version": "1.0.4-rc.1",
   "renglo": {
-    "platform": "0.1.4"
+    "platform": "0.1.5"
   },
   "type": "module",
   "main": "./dumbo.tsx",
