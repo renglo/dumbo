@@ -126,6 +126,27 @@ class Sessions:
             return "tool"
         return "system"
 
+    _USER_MESSAGE_TRACE_KEYS = (
+        "whatsapp_inbound_message_id",
+        "eventbridge_event_id",
+        "webhook_edge_receipt_id",
+        "webhook_envelope_sha256",
+        "ingress_http_request_id",
+    )
+
+    def _user_message_content(self, event: SessionEvent) -> str | dict[str, Any]:
+        text = event.payload.get("text")
+        if text is None:
+            text = event.payload.get("message", "")
+        trace_fields = {
+            key: str(event.payload[key])
+            for key in self._USER_MESSAGE_TRACE_KEYS
+            if event.payload.get(key)
+        }
+        if trace_fields:
+            return {"text": str(text), **trace_fields}
+        return str(text)
+
     def _event_to_message(self, event: SessionEvent) -> dict[str, Any]:
         et = event.event_type
         meta = self._base_meta(event)
@@ -135,9 +156,13 @@ class Sessions:
             if text is None:
                 text = event.payload.get("message", "")
             role = "user" if et == "user_message" else "assistant"
+            if et == "user_message":
+                content: str | dict[str, Any] = self._user_message_content(event)
+            else:
+                content = str(text)
             row = {
                 "_type": et,
-                "_out": {"role": role, "content": str(text)},
+                "_out": {"role": role, "content": content},
                 "_meta": _sanitize_for_dynamo(meta),
             }
             return _sanitize_for_dynamo(row)
@@ -190,7 +215,18 @@ class Sessions:
 
         if et in ("user_message", "assistant_message"):
             content = out.get("content")
-            payload = {"text": content if isinstance(content, str) else json.dumps(content, default=str)}
+            if isinstance(content, dict):
+                payload = {
+                    "text": str(content.get("text") or content.get("message") or ""),
+                }
+                for key in self._USER_MESSAGE_TRACE_KEYS:
+                    value = content.get(key)
+                    if value:
+                        payload[key] = str(value)
+            else:
+                payload = {
+                    "text": content if isinstance(content, str) else json.dumps(content, default=str)
+                }
             return SessionEvent(
                 event_id=event_id,
                 session_id=sid,

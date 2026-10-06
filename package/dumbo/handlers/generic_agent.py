@@ -405,6 +405,25 @@ class GenericAgent:
                 max_loaded=ext_cfg.max_loaded_skills,
             )
 
+            metadata = dict(payload.get("metadata") or {})
+            inbound_message_id = str(payload.get("inbound_message_id") or "").strip()
+            if inbound_message_id:
+                metadata["whatsapp_inbound_message_id"] = inbound_message_id
+            ingress_trace = payload.get("ingress_trace")
+            if isinstance(ingress_trace, dict):
+                for key in (
+                    "eventbridge_event_id",
+                    "webhook_edge_receipt_id",
+                    "webhook_envelope_sha256",
+                    "ingress_http_request_id",
+                ):
+                    value = ingress_trace.get(key)
+                    if value:
+                        metadata[key] = str(value)
+            envelope = str(payload.get("webhook_envelope_sha256") or "").strip()
+            if envelope:
+                metadata["webhook_envelope_sha256"] = envelope
+
             initial_state: AgentState = {
                 "session_id": ss.session_id,
                 "agent_id": profile.id,
@@ -415,7 +434,7 @@ class GenericAgent:
                 "turn_count": 0,
                 "pending_approvals": pending,
                 "loaded_skill_keys": [s.key for s in matched_skills],
-                "metadata": payload.get("metadata") or {},
+                "metadata": metadata,
             }
 
             recursion = profile.recursion_limit or ext_cfg.recursion_limit
@@ -721,13 +740,25 @@ class GenericAgent:
         messages = list(state.get("messages") or [])
         if text:
             messages.append({"role": "user", "content": text})
+            user_payload: Dict[str, Any] = {"text": text}
+            meta = state.get("metadata") or {}
+            for key in (
+                "whatsapp_inbound_message_id",
+                "eventbridge_event_id",
+                "webhook_edge_receipt_id",
+                "webhook_envelope_sha256",
+                "ingress_http_request_id",
+            ):
+                value = meta.get(key)
+                if value:
+                    user_payload[key] = str(value)
             self._save_event(
                 SessionEvent(
                     event_id=str(uuid.uuid4()),
                     session_id=state["session_id"],
                     event_type="user_message",
                     timestamp=self._now(),
-                    payload={"text": text},
+                    payload=user_payload,
                 )
             )
         return {"messages": messages}
