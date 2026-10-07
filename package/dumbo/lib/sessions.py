@@ -32,7 +32,29 @@ PROMPT_SKIP_TYPES = frozenset(
 )
 
 CHAT_EVENT_TYPES = frozenset({"user_message", "assistant_message"})
-HISTORY_EVENT_TYPES = frozenset({"user_message", "assistant_message", "channel_delivery"})
+HISTORY_EVENT_TYPES = frozenset(
+    {"user_message", "assistant_message", "channel_delivery", "tool_call", "tool_result"}
+)
+
+
+def _chat_count(events: list[SessionEvent]) -> int:
+    return sum(1 for event in events if event.event_type in CHAT_EVENT_TYPES)
+
+
+def _trim_chat(events: list[SessionEvent], max_messages: int) -> list[SessionEvent]:
+    """Keep the newest chat messages and the tool events that sit with them."""
+    if max_messages <= 0:
+        return events
+    kept: list[SessionEvent] = []
+    seen = 0
+    for event in reversed(events):
+        if event.event_type in CHAT_EVENT_TYPES:
+            if seen >= max_messages:
+                break
+            seen += 1
+        kept.append(event)
+    kept.reverse()
+    return kept
 
 
 def format_session_key(entity_type: str, entity_id: str, thread_id: str) -> str:
@@ -318,8 +340,8 @@ class Sessions:
         Unlike ``get_events``, this:
         - considers only the last ``max_turns`` turn documents (SessionController
           already caps the query at 50 turns)
-        - parses only ``user_message`` / ``assistant_message`` events
-        - walks newest turns first and stops once enough messages are collected
+        - keeps ``tool_call`` / ``tool_result`` events from those turns
+        - walks newest turns first and stops once enough chat messages are collected
         """
         if session_id != self.session_id:
             raise ValueError("session_id mismatch")
@@ -351,12 +373,15 @@ class Sessions:
                 if ev.event_type == "channel_delivery":
                     batch.append(ev)
                     continue
+                if ev.event_type in ("tool_call", "tool_result"):
+                    batch.append(ev)
+                    continue
                 text = ev.payload.get("text") or ev.payload.get("message") or ""
                 if str(text).strip():
                     batch.append(ev)
             if batch:
                 collected = batch + collected
-            if len(collected) >= max_messages:
+            if _chat_count(collected) >= max_messages:
                 break
 
-        return collected[-max_messages:]
+        return _trim_chat(collected, max_messages)

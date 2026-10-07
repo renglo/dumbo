@@ -13,7 +13,7 @@ import json
 import logging
 import uuid
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -34,6 +34,7 @@ from ..lib.models import Models
 from ..lib.profiles import Profiles
 from ..lib.sessions import Sessions
 from ..lib.skills import Skills
+from ..lib.timeline import pair_timeline
 from ..lib.tools import Tools
 
 _logger = logging.getLogger(__name__)
@@ -64,6 +65,10 @@ class RequestContext:
     message: str = ""
     agent_id: str = ""
     request_id: str = ""
+    channel: str = ""
+    external_id: str = ""
+    user_id: str = ""
+    reply_args: Dict[str, Any] = field(default_factory=dict)
 
 
 request_context: ContextVar[RequestContext] = ContextVar(
@@ -281,6 +286,11 @@ class GenericAgent:
 
         if "connectionId" in payload:
             context.connection_id = payload["connectionId"]
+        context.channel = str(payload.get("channel") or "").strip()
+        context.external_id = str(payload.get("external_id") or "").strip()
+        context.user_id = str(payload.get("user_id") or "").strip()
+        raw_reply_args = payload.get("reply_args")
+        context.reply_args = dict(raw_reply_args) if isinstance(raw_reply_args, dict) else {}
         if "portfolio" in payload:
             context.portfolio = payload["portfolio"]
         else:
@@ -300,10 +310,18 @@ class GenericAgent:
             context.message = str(data.get("message") or data.get("text") or "")
         else:
             context.message = str(data or payload.get("message") or "")
+        if payload.get("_continuation"):
+            context.message = ""
         context.agent_id = str(
             payload.get("agent_id") or payload.get("agentId") or ""
         ).strip()
         self._set_context(context)
+        actor = context.user_id or context.public_user
+        if actor:
+            self.SSC.set_invocation_user(actor)
+            data_auth = getattr(self.DAC, "AUC", None)
+            if data_auth is not None and hasattr(data_auth, "set_invocation_user"):
+                data_auth.set_invocation_user(actor)
 
         # Load extension data and profile for the active org (chat URL org).
         cfg_store = ConfigStore(self.DAC, context.portfolio, context.org)
@@ -638,40 +656,12 @@ class GenericAgent:
         max_turns: int,
     ) -> List[Dict[str, Any]]:
         """Cross-turn continuity via windowed session scan (newest turns first)."""
-        messages: List[Dict[str, Any]] = []
-        for event in ss.get_recent_chat_events(
+        events = ss.get_recent_chat_events(
             ss.session_id,
             max_messages=max_messages,
             max_turns=max_turns,
-        ):
-            if event.event_type == "channel_delivery":
-                status = str(event.payload.get("status") or "")
-                if status != "failed":
-                    continue
-                channel = str(event.payload.get("channel") or "channel")
-                err = (
-                    event.payload.get("provider_error")
-                    or event.payload.get("error")
-                    or event.payload.get("provider_status")
-                    or "unknown error"
-                )
-                if isinstance(err, (dict, list)):
-                    err = json.dumps(err, default=str)[:400]
-                messages.append(
-                    {
-                        "role": "system",
-                        "content": (
-                            f"[channel_delivery failed on {channel}] "
-                            f"The previous assistant reply was not delivered: {err}"
-                        ),
-                    }
-                )
-                continue
-            role = "user" if event.event_type == "user_message" else "assistant"
-            text = event.payload.get("text") or event.payload.get("message") or ""
-            if str(text).strip():
-                messages.append({"role": role, "content": str(text)})
-        return messages
+        )
+        return pair_timeline(events)
 
     def _user_text_for_skills(self, state: AgentState) -> str:
         text = (state.get("inbound_message") or "").strip()
@@ -994,6 +984,7 @@ class GenericAgent:
             detach = should_detach(execution, placed_on_peer(extension), args)
         if detach == "async":
             from renglo.runtime import attach_jwt_claims_to_payload
+            from renglo.schd.channel_reply import reply_route
             from renglo.schd.peer_runner import invoke_peer_event
             from schd.lib.execution import match_latency
 
@@ -1009,17 +1000,30 @@ class GenericAgent:
             turn_id = ""
             if self._sessions is not None:
                 turn_id = str(self._sessions.get_active_turn_id() or "")
+            completion = {
+                "call_id": call_id or "",
+                "tool": name,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "when": str(row.get("when") or ""),
+                "callback": {"handler": "dumbo/generic_agent"},
+            }
+            route = reply_route(
+                {
+                    "channel": ctx.channel,
+                    "external_id": ctx.external_id,
+                    "user_id": ctx.user_id,
+                    "public_user": ctx.public_user,
+                    "reply_args": ctx.reply_args,
+                }
+            )
+            if route:
+                completion["reply"] = route
             started = invoke_peer_event(
                 extension,
                 handler,
                 params,
-                completion={
-                    "call_id": call_id or "",
-                    "tool": name,
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "when": str(row.get("when") or ""),
-                },
+                completion=completion,
             )
             if not started.get("success"):
                 return ToolResult(
@@ -1045,8 +1049,10 @@ class GenericAgent:
                     "when": str(row.get("when") or ""),
                     "latency": wait,
                     "guidance": (
-                        "The result will arrive on the session. "
-                        "Tell the user the expected wait and finish this turn."
+                        "The result will arrive on this session under the same call_id. "
+                        "You may start other tools in this turn. "
+                        "Tell the user the expected wait if you stop here. "
+                        "Do not invent the result."
                     ),
                 },
             )
