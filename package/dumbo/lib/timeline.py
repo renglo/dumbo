@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from .class_prototypes import SessionEvent
+from .tools import Tools
 
 
 def pair_timeline(events: list[SessionEvent]) -> list[dict[str, Any]]:
@@ -90,7 +91,8 @@ def _is_running(event: SessionEvent) -> bool:
 
 def _tool_pair(call: SessionEvent, result: SessionEvent | None) -> list[dict[str, Any]]:
     call_id = str(call.payload.get("call_id") or "")
-    name = str(call.payload.get("tool") or "tool")
+    # Session stores the schd key (extension/handler). The model API rejects the slash.
+    name = Tools.openai_function_name(str(call.payload.get("tool") or "tool"))
     arguments = call.payload.get("arguments") or {}
     if not isinstance(arguments, str):
         try:

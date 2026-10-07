@@ -51,6 +51,34 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(messages[1]["content"], "Checking that now.")
         self.assertEqual(messages[-1]["role"], "tool")
 
+    def test_a_catalog_key_is_a_legal_function_name(self) -> None:
+        events = [
+            _event("user_message", {"text": "run the report"}, "user"),
+            _event(
+                "tool_call",
+                {
+                    "tool": "tourbot/client_production_report",
+                    "call_id": "call-1",
+                    "arguments": {"year": 2026},
+                },
+                "call",
+            ),
+            _event(
+                "tool_result",
+                {
+                    "tool": "tourbot/client_production_report",
+                    "call_id": "call-1",
+                    "success": True,
+                    "result": {"total": 10},
+                },
+                "done",
+            ),
+        ]
+        pair = [item for item in pair_timeline(events) if item.get("tool_calls")]
+        name = pair[0]["tool_calls"][0]["function"]["name"]
+        self.assertEqual(name, "tourbot_client_production_report")
+        self.assertNotIn("/", name)
+
 
 if __name__ == "__main__":
     unittest.main()
