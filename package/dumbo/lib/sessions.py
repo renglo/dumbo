@@ -32,7 +32,29 @@ PROMPT_SKIP_TYPES = frozenset(
 )
 
 CHAT_EVENT_TYPES = frozenset({"user_message", "assistant_message"})
-HISTORY_EVENT_TYPES = frozenset({"user_message", "assistant_message", "channel_delivery"})
+HISTORY_EVENT_TYPES = frozenset(
+    {"user_message", "assistant_message", "channel_delivery", "tool_call", "tool_result"}
+)
+
+
+def _chat_count(events: list[SessionEvent]) -> int:
+    return sum(1 for event in events if event.event_type in CHAT_EVENT_TYPES)
+
+
+def _trim_chat(events: list[SessionEvent], max_messages: int) -> list[SessionEvent]:
+    """Keep the newest chat messages and the tool events that sit with them."""
+    if max_messages <= 0:
+        return events
+    kept: list[SessionEvent] = []
+    seen = 0
+    for event in reversed(events):
+        if event.event_type in CHAT_EVENT_TYPES:
+            if seen >= max_messages:
+                break
+            seen += 1
+        kept.append(event)
+    kept.reverse()
+    return kept
 
 
 def format_session_key(entity_type: str, entity_id: str, thread_id: str) -> str:
@@ -126,6 +148,27 @@ class Sessions:
             return "tool"
         return "system"
 
+    _USER_MESSAGE_TRACE_KEYS = (
+        "whatsapp_inbound_message_id",
+        "eventbridge_event_id",
+        "webhook_edge_receipt_id",
+        "webhook_envelope_sha256",
+        "ingress_http_request_id",
+    )
+
+    def _user_message_content(self, event: SessionEvent) -> str | dict[str, Any]:
+        text = event.payload.get("text")
+        if text is None:
+            text = event.payload.get("message", "")
+        trace_fields = {
+            key: str(event.payload[key])
+            for key in self._USER_MESSAGE_TRACE_KEYS
+            if event.payload.get(key)
+        }
+        if trace_fields:
+            return {"text": str(text), **trace_fields}
+        return str(text)
+
     def _event_to_message(self, event: SessionEvent) -> dict[str, Any]:
         et = event.event_type
         meta = self._base_meta(event)
@@ -135,9 +178,13 @@ class Sessions:
             if text is None:
                 text = event.payload.get("message", "")
             role = "user" if et == "user_message" else "assistant"
+            if et == "user_message":
+                content: str | dict[str, Any] = self._user_message_content(event)
+            else:
+                content = str(text)
             row = {
                 "_type": et,
-                "_out": {"role": role, "content": str(text)},
+                "_out": {"role": role, "content": content},
                 "_meta": _sanitize_for_dynamo(meta),
             }
             return _sanitize_for_dynamo(row)
@@ -190,7 +237,18 @@ class Sessions:
 
         if et in ("user_message", "assistant_message"):
             content = out.get("content")
-            payload = {"text": content if isinstance(content, str) else json.dumps(content, default=str)}
+            if isinstance(content, dict):
+                payload = {
+                    "text": str(content.get("text") or content.get("message") or ""),
+                }
+                for key in self._USER_MESSAGE_TRACE_KEYS:
+                    value = content.get(key)
+                    if value:
+                        payload[key] = str(value)
+            else:
+                payload = {
+                    "text": content if isinstance(content, str) else json.dumps(content, default=str)
+                }
             return SessionEvent(
                 event_id=event_id,
                 session_id=sid,
@@ -282,8 +340,8 @@ class Sessions:
         Unlike ``get_events``, this:
         - considers only the last ``max_turns`` turn documents (SessionController
           already caps the query at 50 turns)
-        - parses only ``user_message`` / ``assistant_message`` events
-        - walks newest turns first and stops once enough messages are collected
+        - keeps ``tool_call`` / ``tool_result`` events from those turns
+        - walks newest turns first and stops once enough chat messages are collected
         """
         if session_id != self.session_id:
             raise ValueError("session_id mismatch")
@@ -315,12 +373,15 @@ class Sessions:
                 if ev.event_type == "channel_delivery":
                     batch.append(ev)
                     continue
+                if ev.event_type in ("tool_call", "tool_result"):
+                    batch.append(ev)
+                    continue
                 text = ev.payload.get("text") or ev.payload.get("message") or ""
                 if str(text).strip():
                     batch.append(ev)
             if batch:
                 collected = batch + collected
-            if len(collected) >= max_messages:
+            if _chat_count(collected) >= max_messages:
                 break
 
-        return collected[-max_messages:]
+        return _trim_chat(collected, max_messages)
