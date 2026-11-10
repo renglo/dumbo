@@ -6,7 +6,7 @@
   "fields": [
     {
       "cardinality": "single",
-      "default": "amazon.nova-lite-v1:0",
+      "default": "gpt-4.1",
       "hint": "OpenAI (or Azure-compatible) chat model id. Prefer a strong model (e.g. gpt-4.1, gpt-5.4, o3).",
       "label": "Model",
       "layer": "0",
