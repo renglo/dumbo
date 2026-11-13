@@ -340,6 +340,9 @@ class GenericAgent:
             config=self.config,
             model=model_name,
             temperature=ext_cfg.temperature,
+            portfolio=context.portfolio,
+            org=context.org,
+            agent_id=profile.id,
         )
 
         self._approvals = Approvals(
