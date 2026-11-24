@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from flask import current_app
 
 from renglo.auth.auth_controller import AuthController
 from renglo.blueprint.blueprint_controller import BlueprintController
@@ -17,6 +18,8 @@ from ..lib.demo_tools import DEMO_SCHD_TOOLS
 from ..lib.profiles import Profiles
 from ..lib.skills import Skills
 from ..lib.tools import parse_schd_input_field
+
+logger = logging.getLogger(__name__)
 
 
 REQUIRED_BLUEPRINT_RINGS = (
@@ -78,7 +81,7 @@ class DumboOnboardings:
 
     def create_tool(self, portfolio: str, tool: str, handle: str) -> Dict[str, Any]:
         action = "create_tool"
-        current_app.logger.debug("Installing Dumbo tool in portfolio")
+        logger.debug("Installing Dumbo tool in portfolio")
 
         kwargs = {
             "name": tool,
@@ -250,7 +253,7 @@ class DumboOnboardings:
                 "output": result,
             }
         except Exception as exc:
-            current_app.logger.warning(
+            logger.warning(
                 "S3 cache refresh failed for %s/%s/%s: %s",
                 portfolio,
                 org,
